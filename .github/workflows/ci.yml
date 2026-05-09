@@ -1,0 +1,61 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel an in-flight CI run for the same ref when a new commit is pushed —
+# avoids stacking redundant builds on rapid pushes / PR updates.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: macos-latest
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install macOS toolchain
+        run: |
+          brew install ninja
+          clang --version
+          ninja --version
+          cmake --version
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      # Separate cache namespace from release.yml so a poisoned CI cache
+      # cannot affect release builds (and vice-versa).
+      - name: Cache cargo + uniffi-bindgen-cpp builds
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            loro-cpp-rs/target
+            build/uniffi-bindgen-cpp
+          key: ci-cargo-macos-${{ hashFiles('loro-cpp-rs/Cargo.lock', 'vendor/uniffi-bindgen-cpp/Cargo.lock') }}
+          restore-keys: |
+            ci-cargo-macos-
+
+      - name: Configure (Release)
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DLORO_BUILD_EXAMPLES=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --parallel 2
