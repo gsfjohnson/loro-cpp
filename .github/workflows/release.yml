@@ -83,6 +83,18 @@ jobs:
       # $GITHUB_PATH in the "Expose rustup" step below). With the default
       # `minimal`, $GITHUB_PATH additions are invisible inside MSYS2 and
       # corrosion's FindRust fails to locate rustc.
+      #
+      # cmake/ninja are pulled from the MSYS2 *base* repo (msys/cmake,
+      # msys/ninja) rather than the CLANG64 mingw-prefixed packages — those
+      # are Windows-native binaries that report `CMAKE_HOST_SYSTEM_NAME ==
+      # "Windows"`, which (a) bypasses the `if(CMAKE_HOST_SYSTEM_NAME STREQUAL
+      # "MSYS")` block in our top-level CMakeLists that pins
+      # Rust_CARGO_TARGET=…-gnullvm, so corrosion silently falls back to the
+      # rustup-default `x86_64-pc-windows-msvc`, and (b) cannot consume the
+      # MSYS-form working-directory paths that vendor/corrosion's local patch
+      # produces (cmd.exe gets `cd /D /d/a/…` and bails). The base-repo cmake
+      # is the same MSYS-shell cmake the local dev verification was built
+      # against — keep CI on it so both stay in lockstep.
       - name: Setup MSYS2 (Windows)
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
@@ -92,9 +104,9 @@ jobs:
           path-type: inherit
           install: >-
             git
+            cmake
+            ninja
             mingw-w64-clang-x86_64-clang
-            mingw-w64-clang-x86_64-cmake
-            mingw-w64-clang-x86_64-ninja
             mingw-w64-clang-x86_64-pkgconf
 
       # ----- Rust: stable + the matrix's target ----------------------------
