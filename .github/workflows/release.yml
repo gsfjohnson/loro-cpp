@@ -109,12 +109,6 @@ jobs:
             mingw-w64-clang-x86_64-clang
             mingw-w64-clang-x86_64-pkgconf
 
-      # ----- Rust: stable + the matrix's target ----------------------------
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust_target }}
-
       - name: Cache cargo + uniffi-bindgen-cpp builds
         uses: actions/cache@v4
         with:
@@ -127,11 +121,11 @@ jobs:
           restore-keys: |
             cargo-${{ matrix.os }}-
 
-      # On MSYS2 the rustup toolchain shipped by dtolnay/rust-toolchain isn't
-      # on the MSYS PATH by default — surface it. Use `cygpath -u` to convert
-      # the Windows-style $USERPROFILE (`C:\Users\…`) to MSYS form
-      # (`/c/Users/…`); embedding the raw Windows path breaks `$PATH` because
-      # the drive-letter colon is treated as a PATH separator.
+      # On MSYS2 the rustup toolchain pre-installed on the runner isn't on the
+      # MSYS PATH by default — surface it. Use `cygpath -u` to convert the
+      # Windows-style $USERPROFILE (`C:\Users\…`) to MSYS form (`/c/Users/…`);
+      # embedding the raw Windows path breaks `$PATH` because the drive-letter
+      # colon is treated as a PATH separator.
       - name: Expose rustup to MSYS2 (Windows)
         if: runner.os == 'Windows'
         run: |
@@ -141,6 +135,12 @@ jobs:
           export PATH="$CARGO_BIN:$PATH"
           rustc --version
           cargo --version
+
+      # Linux/macOS hosts already match their matrix target so this is a no-op
+      # there; on Windows it installs the gnullvm target that the CMake config
+      # pins via Rust_CARGO_TARGET.
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.rust_target }}
 
       # ----- Configure + build + test --------------------------------------
       - name: Configure (Release)

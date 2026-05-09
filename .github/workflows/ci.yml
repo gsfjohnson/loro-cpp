@@ -28,11 +28,6 @@ jobs:
           ninja --version
           cmake --version
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin
-
       # Separate cache namespace from release.yml so a poisoned CI cache
       # cannot affect release builds (and vice-versa).
       - name: Cache cargo + uniffi-bindgen-cpp builds
