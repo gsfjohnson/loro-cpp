@@ -78,12 +78,18 @@ jobs:
           cmake --version
 
       # ----- Windows: MSYS2 CLANG64 (matches local dev environment) -------
+      # path-type: inherit appends Windows PATH after the MSYS2 paths so the
+      # MSYS2 shell can see rustup's `~/.cargo/bin` (added to Windows PATH via
+      # $GITHUB_PATH in the "Expose rustup" step below). With the default
+      # `minimal`, $GITHUB_PATH additions are invisible inside MSYS2 and
+      # corrosion's FindRust fails to locate rustc.
       - name: Setup MSYS2 (Windows)
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
         with:
           msystem: CLANG64
           update: true
+          path-type: inherit
           install: >-
             git
             mingw-w64-clang-x86_64-clang

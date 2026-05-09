@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(CTest)  # defines BUILD_TESTING (default ON) and runs enable_testing()
+include(GNUInstallDirs)  # define CMAKE_INSTALL_{LIB,INCLUDE,BIN}DIR before any
+                         # target_include_directories(... INSTALL_INTERFACE) call
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
@@ -145,7 +147,6 @@ endif()
 # ---------------------------------------------------------------------------
 # 4. Install rules + loroConfig package (M4)
 # ---------------------------------------------------------------------------
-include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 # Capture variables that loroConfig.cmake.in needs at configure-time of the
