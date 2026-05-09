@@ -230,3 +230,41 @@ option(LORO_BUILD_EXAMPLES "Build loro-cpp examples" ${PROJECT_IS_TOP_LEVEL})
 if(LORO_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
+
+# ---------------------------------------------------------------------------
+# 6. CPack — produce a platform-appropriate package
+#    Linux         → .deb (CPACK_GENERATOR=DEB; requires dpkg-deb on PATH)
+#    macOS/Windows → .zip
+#
+# Only configured when this project is top-level so consumers using
+# add_subdirectory()/FetchContent don't inherit our CPack settings.
+# ---------------------------------------------------------------------------
+if(PROJECT_IS_TOP_LEVEL)
+    set(CPACK_PACKAGE_NAME           "loro-cpp")
+    set(CPACK_PACKAGE_VERSION        "${PROJECT_VERSION}")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+        "C++ bindings for the Loro CRDT library")
+    set(CPACK_PACKAGE_VENDOR         "loro-cpp")
+    set(CPACK_PACKAGE_HOMEPAGE_URL
+        "https://github.com/gsfjohnson/loro-cpp")
+    # Default file name for ZIP (Linux DEB overrides via DEB-DEFAULT below to
+    # follow Debian's `name_version_arch.deb` convention).
+    set(CPACK_PACKAGE_FILE_NAME
+        "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        set(CPACK_GENERATOR                "DEB")
+        # Rewrite paths inside the .deb to live under /usr instead of the
+        # build-time CMAKE_INSTALL_PREFIX (which is a CI-local scratch dir).
+        set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
+        set(CPACK_DEBIAN_PACKAGE_MAINTAINER
+            "gsfjohnson <gsfjohnson@users.noreply.github.com>")
+        set(CPACK_DEBIAN_PACKAGE_SECTION   "libs")
+        set(CPACK_DEBIAN_PACKAGE_PRIORITY  "optional")
+        set(CPACK_DEBIAN_FILE_NAME         "DEB-DEFAULT")
+    else()
+        set(CPACK_GENERATOR "ZIP")
+    endif()
+
+    include(CPack)
+endif()

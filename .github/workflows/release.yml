@@ -25,22 +25,31 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
 
+    # `${{ github.workspace }}` is empty inside matrix expressions (matrix is
+    # evaluated before runner assignment), so install_prefix is set at the
+    # job-env level instead — that scope is evaluated per-step with full
+    # context resolved.
+    env:
+      INSTALL_PREFIX: ${{ github.workspace }}/install
+
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
+          # ubuntu-24.04 ships gcc-13/libstdc++-13, which handles the
+          # recursive `unordered_map<string, LoroValue>` in the generated
+          # bindings. ubuntu-22.04 (gcc-11/libstdc++-11) rejects incomplete
+          # value types — N4510 support landed in libstdc++-12. Pinned (rather
+          # than `ubuntu-latest`) so the uploaded artifact name is stable.
+          - os: ubuntu-24.04
             shell: bash
             rust_target: x86_64-unknown-linux-gnu
-            install_prefix: ${{ github.workspace }}/install
           - os: macos-latest
             shell: bash
             rust_target: aarch64-apple-darwin
-            install_prefix: ${{ github.workspace }}/install
           - os: windows-latest
             shell: 'msys2 {0}'
             rust_target: x86_64-pc-windows-gnullvm
-            install_prefix: D:/a/install
 
     defaults:
       run:
@@ -101,12 +110,17 @@ jobs:
             cargo-${{ matrix.os }}-
 
       # On MSYS2 the rustup toolchain shipped by dtolnay/rust-toolchain isn't
-      # on the MSYS PATH by default — surface it.
+      # on the MSYS PATH by default — surface it. Use `cygpath -u` to convert
+      # the Windows-style $USERPROFILE (`C:\Users\…`) to MSYS form
+      # (`/c/Users/…`); embedding the raw Windows path breaks `$PATH` because
+      # the drive-letter colon is treated as a PATH separator.
       - name: Expose rustup to MSYS2 (Windows)
         if: runner.os == 'Windows'
         run: |
-          echo "PATH=$USERPROFILE/.cargo/bin:$PATH"
-          export PATH="$USERPROFILE/.cargo/bin:$PATH"
+          CARGO_BIN="$(cygpath -u "$USERPROFILE")/.cargo/bin"
+          echo "PATH=$CARGO_BIN:$PATH"
+          echo "$CARGO_BIN" >> "$GITHUB_PATH"
+          export PATH="$CARGO_BIN:$PATH"
           rustc --version
           cargo --version
 
@@ -117,7 +131,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=ON \
             -DLORO_BUILD_EXAMPLES=ON \
-            -DCMAKE_INSTALL_PREFIX="${{ matrix.install_prefix }}"
+            -DCMAKE_INSTALL_PREFIX="${{ env.INSTALL_PREFIX }}"
 
       - name: Build
         run: cmake --build build --parallel
@@ -134,7 +148,7 @@ jobs:
           cmake -S examples/consumer-fetchcontent -B build/consumer-find -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DLORO_CONSUMER_MODE=find \
-            -DCMAKE_PREFIX_PATH="${{ matrix.install_prefix }}"
+            -DCMAKE_PREFIX_PATH="${{ env.INSTALL_PREFIX }}"
           cmake --build build/consumer-find --parallel
           ctest --test-dir build/consumer-find --output-on-failure
 
@@ -148,17 +162,22 @@ jobs:
           cmake --build build/consumer-fetch --parallel
           ctest --test-dir build/consumer-fetch --output-on-failure
 
-      # ----- Upload install tree as a release artifact --------------------
+      # ----- Build a release artifact via CPack ---------------------------
+      # CPack staging is independent of the `cmake --install` step above —
+      # the install tree is kept around for the find_package consumer test;
+      # CPack creates its own staging dir and produces a .deb (Linux) or
+      # .zip (macOS/Windows) at the build root.
       - name: Package install tree
         if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          cd "${{ matrix.install_prefix }}"
-          tar czf "${{ github.workspace }}/loro-cpp-${{ matrix.os }}.tar.gz" .
+        working-directory: build
+        run: cpack --verbose
 
       - name: Upload artifact
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: loro-cpp-${{ matrix.os }}
-          path: loro-cpp-${{ matrix.os }}.tar.gz
+          path: |
+            build/loro-cpp*.deb
+            build/loro-cpp*.zip
           if-no-files-found: error
