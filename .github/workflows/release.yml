@@ -25,13 +25,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
 
-    # `${{ github.workspace }}` is empty inside matrix expressions (matrix is
-    # evaluated before runner assignment), so install_prefix is set at the
-    # job-env level instead — that scope is evaluated per-step with full
-    # context resolved.
-    env:
-      INSTALL_PREFIX: ${{ github.workspace }}/install
-
     strategy:
       fail-fast: false
       matrix:
@@ -136,6 +129,23 @@ jobs:
           rustc --version
           cargo --version
 
+      # On Windows, $GITHUB_WORKSPACE is a Windows-form path
+      # (`D:\a\loro-cpp\loro-cpp`), but our Windows job uses MSYS2-base cmake
+      # (see "Setup MSYS2" comment block above for why). MSYS2-base cmake does
+      # not recognize `D:/...` as absolute and treats such prefixes as
+      # relative, double-nesting install destinations and breaking
+      # find_package on the install tree. Convert via `cygpath -u` so cmake
+      # sees `/d/a/...`. Linux/macOS pass through unchanged.
+      - name: Compute workspace paths
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            WS="$(cygpath -u "${GITHUB_WORKSPACE}")"
+          else
+            WS="${GITHUB_WORKSPACE}"
+          fi
+          echo "INSTALL_PREFIX=${WS}/install" >> "${GITHUB_ENV}"
+          echo "LORO_SOURCE_DIR=${WS}" >> "${GITHUB_ENV}"
+
       # Linux/macOS hosts already match their matrix target so this is a no-op
       # there; on Windows it installs the gnullvm target that the CMake config
       # pins via Rust_CARGO_TARGET.
@@ -176,7 +186,7 @@ jobs:
           cmake -S examples/consumer-fetchcontent -B build/consumer-fetch -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DLORO_CONSUMER_MODE=fetch \
-            -DLORO_CONSUMER_SOURCE_DIR="${{ github.workspace }}"
+            -DLORO_CONSUMER_SOURCE_DIR="${{ env.LORO_SOURCE_DIR }}"
           cmake --build build/consumer-fetch --parallel
           ctest --test-dir build/consumer-fetch --output-on-failure
 
