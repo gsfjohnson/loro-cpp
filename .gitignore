@@ -1,0 +1,19 @@
+.claude/
+build/
+target/
+loro-cpp-rs/target/
+vendor/uniffi-bindgen-cpp/target/
+
+# Cargo
+Cargo.lock.bak
+**/*.rs.bk
+
+# IDE
+.vscode/
+.idea/
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+

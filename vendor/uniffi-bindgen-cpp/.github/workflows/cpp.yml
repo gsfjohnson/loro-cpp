@@ -1,0 +1,122 @@
+name: C++
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  run-tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-15]
+        build_type: [Release]
+        cpp_compiler: [g++, clang++, cl]
+        exclude:
+          - os: windows-latest
+            cpp_compiler: clang++
+          - os: windows-latest
+            cpp_compiler: g++
+          - os: ubuntu-22.04
+            cpp_compiler: cl
+          - os: macos-15
+            cpp_compiler: cl
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      run: |
+        echo "build-output-dir=${{ github.workspace }}/cpp-tests/build" >> "$GITHUB_OUTPUT"
+        echo "build-source-dir=${{ github.workspace }}/cpp-tests" >> "$GITHUB_OUTPUT"
+
+    - name: Install additional dependencies
+      shell: bash
+      run: |
+        if [ "$RUNNER_OS" == "Linux" ]; then
+          sudo apt update && sudo apt install -y valgrind
+        fi
+
+    - name: Configure CMake
+      run: >
+        cmake -B ${{ steps.strings.outputs.build-output-dir }}
+        -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
+        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+        -S ${{ steps.strings.outputs.build-source-dir }}
+
+    - name: Build
+      run: cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
+
+    - name: Run tests
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      run: ctest --build-config ${{ matrix.build_type }}
+
+  # build-scaffolding-lib:
+  #   runs-on: ubuntu-latest
+  #   container:
+  #     image: ghcr.io/nordsecurity/uniffi-bindgen-cpp-test-runner:v0.3.0
+  #   steps:
+  #   - uses: actions/checkout@v3
+  #
+  #   - name: Build scaffolding library
+  #     shell: bash
+  #     env:
+  #       # Github sets HOME to /github/home and breaks dependencies in Docker image..
+  #       # https://github.com/actions/runner/issues/863
+  #       HOME: /root
+  #     run: |
+  #       source ~/.bashrc
+  #       ./build_scaffolding_lib.sh
+  #   - uses: actions/upload-artifact@v3
+  #     with:
+  #       name: scaffolding_lib
+  #       path: cpp-tests/build/libuniffi_fixtures.so
+  #
+  # test-scaffolding-go:
+  #   runs-on: ubuntu-latest
+  #   container:
+  #     image: ghcr.io/nordsecurity/uniffi-bindgen-cpp-test-runner:v0.3.0
+  #   needs: build-scaffolding-lib
+  #   steps:
+  #   - uses: actions/checkout@v3
+  #     with:
+  #       submodules: recursive
+  #   - uses: actions/download-artifact@v3
+  #     with:
+  #       name: scaffolding_lib
+  #       path: cpp-tests/build/
+  #   - name: Test scaffolding Go
+  #     shell: bash
+  #     env:
+  #       HOME: /root
+  #     run: |
+  #       source ~/.bashrc
+  #       ./test_scaffolding_go.sh
+  #
+  # test-scaffolding-cs:
+  #   runs-on: ubuntu-latest
+  #   container:
+  #     image: ghcr.io/nordsecurity/uniffi-bindgen-cs-test-runner:v0.1.0
+  #   needs: build-scaffolding-lib
+  #   steps:
+  #   - uses: actions/checkout@v3
+  #     with:
+  #       submodules: recursive
+  #   - uses: actions/download-artifact@v3
+  #     with:
+  #       name: scaffolding_lib
+  #       path: cpp-tests/build/
+  #   - name: Test scaffolding C#
+  #     shell: bash
+  #     env:
+  #       HOME: /root
+  #     run: |
+  #       source ~/.bashrc
+  #       ./test_scaffolding_cs.sh

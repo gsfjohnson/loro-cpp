@@ -1,0 +1,30 @@
+[package]
+name = "loro-cpp-rs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+loro-ffi = "=1.10.3"
+# Upstream's `loro = "1.10.3"` resolves to caret (^1.10.3), and the API broke
+# in `loro 1.12.x` (e.g. `loro::sync::RwLock` vs. `std::sync::RwLock`,
+# `LoroMutexGuard::unwrap` removed). Pin the entire `loro-*` chain to 1.10.3
+# so the dep graph compiles against the surface `loro-ffi 1.10.3` was
+# published against.
+loro          = "=1.10.3"
+loro-internal = "=1.10.3"
+# `loro-common` and `loro-kv-store` skipped 1.10.3 (their highest 1.10.x is
+# 1.10.0). Pin to 1.10.0 — that's what the resolver would have picked the
+# day `loro-ffi 1.10.3` was published.
+loro-common   = "=1.10.0"
+loro-kv-store = "=1.10.0"
+
+[profile.release]
+# uniffi-bindgen-cpp's archive reader (`goblin`) trips on the long
+# `.rcgu.o` member names rustc emits when codegen-units > 1 on Windows.
+# Force a single codegen unit so the staticlib has predictable members.
+codegen-units = 1
+lto           = false
