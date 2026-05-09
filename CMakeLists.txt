@@ -10,15 +10,71 @@ include(CTest)  # defines BUILD_TESTING (default ON) and runs enable_testing()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # ---------------------------------------------------------------------------
-# 1. Pull Corrosion (Rust ⇆ CMake) and import the shim staticlib.
+# MSYS2 cmake defaults — only applied when running under an MSYS2 cmake build
+# (CMAKE_HOST_SYSTEM_NAME=MSYS) and when the user hasn't already set the
+# corresponding variable. Make MSYS2 builds work with a bare
+# `cmake -B build -G Ninja` instead of needing a wall of `-D` flags.
+#
+# Why each default is needed:
+#  * Rust_COMPILER / Rust_CARGO / Rust_RESOLVE_RUSTUP_TOOLCHAINS=OFF —
+#    Corrosion's FindRust resolves rustup's reported toolchain path
+#    (`C:\Users\…\.rustup\toolchains\…`) via `find_program(... HINTS …)`,
+#    which fails on MSYS2 cmake (the backslashes don't survive the HINTS
+#    lookup). Bypass rustup-resolve and point straight at the active
+#    toolchain binaries.
+#  * Rust_CARGO_TARGET — pick the Rust target triple that matches the
+#    MSYS2 environment's runtime/CRT (CLANG64 → gnullvm; UCRT64 / MINGW64
+#    → gnu, both use UCRT in modern rustc).
 # ---------------------------------------------------------------------------
-include(FetchContent)
-FetchContent_Declare(
-    Corrosion
-    GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
-    GIT_TAG        v0.5.1
-)
-FetchContent_MakeAvailable(Corrosion)
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "MSYS")
+    if(NOT DEFINED Rust_COMPILER OR NOT DEFINED Rust_CARGO)
+        execute_process(
+            COMMAND rustup which rustc
+            OUTPUT_VARIABLE _loro_rustc
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+            RESULT_VARIABLE _loro_rustc_rc
+        )
+        execute_process(
+            COMMAND rustup which cargo
+            OUTPUT_VARIABLE _loro_cargo
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+            RESULT_VARIABLE _loro_cargo_rc
+        )
+        if(_loro_rustc_rc EQUAL 0 AND _loro_cargo_rc EQUAL 0)
+            string(REPLACE "\\" "/" _loro_rustc "${_loro_rustc}")
+            string(REPLACE "\\" "/" _loro_cargo "${_loro_cargo}")
+            set(Rust_COMPILER "${_loro_rustc}" CACHE FILEPATH "rustc binary")
+            set(Rust_CARGO    "${_loro_cargo}" CACHE FILEPATH "cargo binary")
+            set(Rust_RESOLVE_RUSTUP_TOOLCHAINS OFF CACHE BOOL
+                "Disable rustup-toolchain resolution under MSYS2 cmake")
+        endif()
+        unset(_loro_rustc)
+        unset(_loro_cargo)
+        unset(_loro_rustc_rc)
+        unset(_loro_cargo_rc)
+    endif()
+    if(NOT DEFINED Rust_CARGO_TARGET AND DEFINED ENV{MSYSTEM})
+        if("$ENV{MSYSTEM}" STREQUAL "CLANG64")
+            set(Rust_CARGO_TARGET "x86_64-pc-windows-gnullvm" CACHE STRING "")
+        elseif("$ENV{MSYSTEM}" STREQUAL "CLANGARM64")
+            set(Rust_CARGO_TARGET "aarch64-pc-windows-gnullvm" CACHE STRING "")
+        elseif("$ENV{MSYSTEM}" STREQUAL "UCRT64" OR "$ENV{MSYSTEM}" STREQUAL "MINGW64")
+            set(Rust_CARGO_TARGET "x86_64-pc-windows-gnu" CACHE STRING "")
+        endif()
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# 1. Add vendored Corrosion (Rust ⇆ CMake) and import the shim staticlib.
+#    Vendored at vendor/corrosion/ (v0.6.1) with one local patch:
+#    CorrosionGenerator.cmake replaces `file(TO_CMAKE_PATH)` on the cargo-
+#    metadata manifest path with a plain `\\`→`/` substitution, because
+#    MSYS2 cmake's TO_CMAKE_PATH treats `:` as a list separator and would
+#    mangle `C:\Users\…` into `C;/Users/…`.
+# ---------------------------------------------------------------------------
+add_subdirectory(vendor/corrosion EXCLUDE_FROM_ALL)
 
 corrosion_import_crate(
     MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/loro-cpp-rs/Cargo.toml"
@@ -63,30 +119,24 @@ target_include_directories(loro PUBLIC
 target_link_libraries(loro PUBLIC loro_cpp_rs)
 target_compile_features(loro PUBLIC cxx_std_20)
 
-# On Windows MSVC, rust 1.95+'s `getrandom` references `BCryptGenRandom`
-# through `bcryptprimitives.dll` (a forwarder DLL). Corrosion populates
+# Rust 1.95+'s `getrandom` references `BCryptGenRandom` through
+# `bcryptprimitives.dll` (a forwarder DLL). Corrosion populates
 # `Rust_CARGO_TARGET_LINK_NATIVE_LIBS` from rustc's `--print
 # native-static-libs` output, but that list omits `bcrypt` for
 # bcryptprimitives-using builds — so we add it explicitly here.
-if(WIN32)
+#
+# Match against the cargo target rather than `WIN32` because MSYS2 cmake
+# sets `MSYS=TRUE` / `WIN32=FALSE` (it identifies its host system as
+# `MSYS`, not `Windows`), and `WIN32` would skip the link.
+if(Rust_CARGO_TARGET_OS STREQUAL "windows")
     target_link_libraries(loro PUBLIC bcrypt)
 endif()
 
-# Force-load notes:
-#
-# UniFFI scaffolding (`uniffi_loro_ffi_fn_…`, `ffi_loro_ffi_…`) is `#[no_mangle]`
-# extern "C" and gets *referenced by name* from the generated C++ source.
-# That gives the linker enough work to pull each scaffolding object in;
-# whole-archive coverage is therefore not strictly required.
-#
-# On Windows MSVC, applying `/WHOLEARCHIVE` to the rust staticlib causes
-# LNK2005 duplicate-symbol errors against the COFF import descriptors for
-# `bcryptprimitives.dll` (rust ships them as archive members, and the
-# linker dedups them per archive — but `/WHOLEARCHIVE` re-adds the same
-# archive a second time, breaking that dedup).
-#
-# We can revisit this in M2 if any dynamically-resolved scaffolding symbol
-# (e.g. callback vtables initialized lazily) turns up missing.
+# Note on whole-archive: UniFFI scaffolding (`uniffi_loro_ffi_fn_…`,
+# `ffi_loro_ffi_…`) is `#[no_mangle]` extern "C" and gets *referenced by
+# name* from the generated C++ source, so the linker pulls each scaffolding
+# object in normally; whole-archive coverage is not required. Revisit if a
+# lazily-initialized callback vtable ever turns up missing at link time.
 
 # ---------------------------------------------------------------------------
 # 4. Tests

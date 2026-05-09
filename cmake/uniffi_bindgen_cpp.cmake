@@ -7,10 +7,10 @@
 # LoroValue>)`, which trips the upstream cycle check).
 #
 # Generation runs in *UDL* mode against `loro.udl` from the loro-ffi crate
-# source. UDL mode is preferred over `--library` mode on Windows MSVC: rustc
-# emits .lib archives whose `.rcgu.o` member names are too long for the
-# `goblin` archive parser uniffi-bindgen-cpp uses internally, causing
-# "Failed to extract data from archive member" panics.
+# source. UDL mode side-steps a `goblin` archive-parser failure in
+# `--library` mode where rustc's `.rcgu.o` archive members trip the
+# parser; pinning the shim crate to `codegen-units = 1` mitigates the
+# trigger but UDL mode avoids the code path entirely.
 
 set(UNIFFI_BINDGEN_CPP_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../vendor/uniffi-bindgen-cpp"
     CACHE PATH "Path to vendored uniffi-bindgen-cpp checkout (with loro-cpp patches)")
@@ -18,7 +18,9 @@ set(UNIFFI_BINDGEN_CPP_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../vendor/uniffi-bi
 set(UNIFFI_BINDGEN_CPP_ROOT "${CMAKE_BINARY_DIR}/uniffi-bindgen-cpp"
     CACHE PATH "cargo install --root for uniffi-bindgen-cpp")
 
-if(WIN32)
+# `WIN32` alone misses MSYS2 cmake (sets `MSYS=1` and `WIN32=` empty even
+# though it runs on Windows and cargo writes a .exe). Cover both.
+if(WIN32 OR MSYS)
     set(UNIFFI_BINDGEN_CPP_EXE "${UNIFFI_BINDGEN_CPP_ROOT}/bin/uniffi-bindgen-cpp.exe")
 else()
     set(UNIFFI_BINDGEN_CPP_EXE "${UNIFFI_BINDGEN_CPP_ROOT}/bin/uniffi-bindgen-cpp")
