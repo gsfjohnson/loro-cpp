@@ -1,11 +1,25 @@
 # tests/CMakeLists.txt
-# Smoke / surface tests for the generated `loro` C++ binding.
-# M1 ships a single round-trip test; M2 expands per-interface.
+# M2: one test executable per UDL interface, plus the M1 smoke test.
 
 function(loro_cpp_add_test name)
     add_executable(${name} ${name}.cpp)
     target_link_libraries(${name} PRIVATE loro::loro)
+    target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
 loro_cpp_add_test(test_smoke)
+loro_cpp_add_test(test_doc)
+loro_cpp_add_test(test_text)
+loro_cpp_add_test(test_map)
+loro_cpp_add_test(test_list)
+loro_cpp_add_test(test_movable_list)
+loro_cpp_add_test(test_tree)
+loro_cpp_add_test(test_counter)
+loro_cpp_add_test(test_awareness)
+loro_cpp_add_test(test_ephemeral_store)
+loro_cpp_add_test(test_undo)
+loro_cpp_add_test(test_fractional_index)
+loro_cpp_add_test(test_version_vector)
+loro_cpp_add_test(test_jsonpath)
+loro_cpp_add_test(test_subscriptions)
