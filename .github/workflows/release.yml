@@ -1,0 +1,164 @@
+name: release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+#  push:
+#    branches: [main]
+#    tags: ['v*']
+#  pull_request:
+#    branches: [main]
+
+# Release builds across the three supported toolchains. Each job:
+#   1. Configures + builds + runs tests with BUILD_TESTING=ON.
+#   2. Installs to a job-local prefix.
+#   3. Builds the FetchContent consumer in `find` mode against the install
+#      tree, confirming loroConfig + loroTargets resolve correctly.
+#   4. Builds the same consumer in `fetch` mode against the source checkout,
+#      confirming a downstream FetchContent integration works end-to-end.
+#   5. Uploads the install tree as a release artifact.
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            shell: bash
+            rust_target: x86_64-unknown-linux-gnu
+            install_prefix: ${{ github.workspace }}/install
+          - os: macos-latest
+            shell: bash
+            rust_target: aarch64-apple-darwin
+            install_prefix: ${{ github.workspace }}/install
+          - os: windows-latest
+            shell: 'msys2 {0}'
+            rust_target: x86_64-pc-windows-gnullvm
+            install_prefix: D:/a/install
+
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ----- Linux: clang + ninja + rustup ---------------------------------
+      - name: Install Linux toolchain
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld ninja-build cmake
+          clang --version
+          ninja --version
+          cmake --version
+
+      # ----- macOS: clang ships with Xcode; install ninja ------------------
+      - name: Install macOS toolchain
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja
+          clang --version
+          ninja --version
+          cmake --version
+
+      # ----- Windows: MSYS2 CLANG64 (matches local dev environment) -------
+      - name: Setup MSYS2 (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          install: >-
+            git
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-ninja
+            mingw-w64-clang-x86_64-pkgconf
+
+      # ----- Rust: stable + the matrix's target ----------------------------
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Cache cargo + uniffi-bindgen-cpp builds
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            loro-cpp-rs/target
+            build/uniffi-bindgen-cpp
+          key: cargo-${{ matrix.os }}-${{ hashFiles('loro-cpp-rs/Cargo.lock', 'vendor/uniffi-bindgen-cpp/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ matrix.os }}-
+
+      # On MSYS2 the rustup toolchain shipped by dtolnay/rust-toolchain isn't
+      # on the MSYS PATH by default — surface it.
+      - name: Expose rustup to MSYS2 (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          echo "PATH=$USERPROFILE/.cargo/bin:$PATH"
+          export PATH="$USERPROFILE/.cargo/bin:$PATH"
+          rustc --version
+          cargo --version
+
+      # ----- Configure + build + test --------------------------------------
+      - name: Configure (Release)
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DLORO_BUILD_EXAMPLES=ON \
+            -DCMAKE_INSTALL_PREFIX="${{ matrix.install_prefix }}"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --parallel 2
+
+      # ----- Install + verify the package via find_package -----------------
+      - name: Install
+        run: cmake --install build
+
+      - name: Consumer (find_package)
+        run: |
+          cmake -S examples/consumer-fetchcontent -B build/consumer-find -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLORO_CONSUMER_MODE=find \
+            -DCMAKE_PREFIX_PATH="${{ matrix.install_prefix }}"
+          cmake --build build/consumer-find --parallel
+          ctest --test-dir build/consumer-find --output-on-failure
+
+      # ----- Verify FetchContent path against the source checkout ---------
+      - name: Consumer (FetchContent)
+        run: |
+          cmake -S examples/consumer-fetchcontent -B build/consumer-fetch -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLORO_CONSUMER_MODE=fetch \
+            -DLORO_CONSUMER_SOURCE_DIR="${{ github.workspace }}"
+          cmake --build build/consumer-fetch --parallel
+          ctest --test-dir build/consumer-fetch --output-on-failure
+
+      # ----- Upload install tree as a release artifact --------------------
+      - name: Package install tree
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cd "${{ matrix.install_prefix }}"
+          tar czf "${{ github.workspace }}/loro-cpp-${{ matrix.os }}.tar.gz" .
+
+      - name: Upload artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: loro-cpp-${{ matrix.os }}
+          path: loro-cpp-${{ matrix.os }}.tar.gz
+          if-no-files-found: error

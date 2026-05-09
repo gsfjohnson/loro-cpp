@@ -87,7 +87,7 @@ loro-cpp/
 │   ├── test_subscriptions.cpp
 │   ├── test_awareness.cpp
 │   └── test_undo.cpp
-└── .github/workflows/ci.yml       # Linux + macOS + Windows × debug/release
+└── .github/workflows/release.yml       # Linux + macOS + Windows × release
 ```
 
 The generated `loro.hpp` / `loro.cpp` land in the build tree (not committed) — they're a build artifact pinned by the version triple above.
@@ -200,7 +200,7 @@ Library mode is used (rather than UDL mode) because `loro-ffi`'s `uniffi.toml` o
 | **M1 — pipeline green** | Shim crate compiles. Corrosion imports it. `uniffi-bindgen-cpp` runs and emits `loro.hpp`/`loro.cpp`. CMake links everything. One smoke test (`LoroDoc` + `LoroText` + snapshot round-trip) passes. | The hard part is the build wiring, not the API. Once green, everything else is "write a test, regenerate." |
 | **M2 — full surface tests** | One test file per UDL interface (`LoroDoc`, `LoroText`, `LoroMap`, `LoroList`, `LoroMovableList`, `LoroTree`, `LoroCounter`, `LoroAwareness`, `EphemeralStore`, `UndoManager`, `FractionalIndex`, `VersionVector`/`Frontiers`, JSON path). Subscription/event tests with raw `std::function` callbacks. | Confirms generated bindings actually work for each surface; surfaces any UniFFI quirks early. |
 | **M3 — `loro_ext.hpp` ergonomics** | Hand-written header on top of generated bindings: `LoroDoc::subscribe_lambda(...)`, `LoroValue::from(std::string)` / `to_string()` shortcuts, `insertContainer<LoroText>(map, key)` template overloads, `expected<T, LoroError>` adapters for fallible methods. Mirrors what `loro-cs` adds to its base. | Without this, the generated API is correct but verbose — UniFFI-flavored, not C++-flavored. |
-| **M4 — packaging + CI** | `install()` rules, `loroConfig.cmake` for `find_package(loro)`, optional `pkg-config`. GitHub Actions matrix: Ubuntu 22.04 / macOS-latest / Windows 11 × {clang} × {Debug, Release}. Examples build green in CI. | Reproducible consumer integration is the deliverable. |
+| **M4 — packaging + CI** | `install()` rules, `loroConfig.cmake` for `find_package(loro)`, optional `pkg-config`. GitHub Actions matrix: Ubuntu 22.04 / macOS-latest / Windows 11 × clang × Release. Examples build green in CI. | Reproducible consumer integration is the deliverable. |
 | **M5 — upstream tracking (deferred)** | When `uniffi-bindgen-cpp` ships a release pairing with the uniffi version `loro-ffi 1.11.x` uses, bump the version triple. | Pure version bumps; no design work. |
 
 ## Critical files (to be created)
@@ -211,7 +211,7 @@ Library mode is used (rather than UDL mode) because `loro-ffi`'s `uniffi.toml` o
 - [loro-cpp-rs/src/lib.rs](loro-cpp-rs/src/lib.rs) — `pub use loro_ffi::*;` + force-link static
 - [include/loro/loro_ext.hpp](include/loro/loro_ext.hpp) — hand-written ergonomics layer (M3)
 - [tests/test_doc.cpp](tests/test_doc.cpp) — smoke test for M1
-- [.github/workflows/ci.yml](.github/workflows/ci.yml) — three-OS matrix (M4)
+- [.github/workflows/release.yml](.github/workflows/release.yml) — three-OS matrix (M4)
 
 No file-by-file Rust API wrapping is needed — the generator handles the entire surface from the existing `loro-ffi` UDL.
 

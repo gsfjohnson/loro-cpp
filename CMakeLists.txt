@@ -115,8 +115,12 @@ add_library(loro::loro ALIAS loro)
 target_include_directories(loro PUBLIC
     "$<BUILD_INTERFACE:${LORO_GENERATED_DIR}>"
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
 )
-target_link_libraries(loro PUBLIC loro_cpp_rs)
+# loro_cpp_rs is a Corrosion-imported INTERFACE target — only valid in this
+# build tree. For installed consumers, the equivalent IMPORTED static target
+# `loro::loro_cpp_rs` is recreated by loroConfig.cmake.
+target_link_libraries(loro PUBLIC $<BUILD_INTERFACE:loro_cpp_rs>)
 target_compile_features(loro PUBLIC cxx_std_20)
 
 # Rust 1.95+'s `getrandom` references `BCryptGenRandom` through
@@ -139,8 +143,90 @@ endif()
 # lazily-initialized callback vtable ever turns up missing at link time.
 
 # ---------------------------------------------------------------------------
-# 4. Tests
+# 4. Install rules + loroConfig package (M4)
+# ---------------------------------------------------------------------------
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+# Capture variables that loroConfig.cmake.in needs at configure-time of the
+# *consumer*: the rust staticlib filename and its native-deps link list.
+# Corrosion sets IMPORTED_LOCATION via cmake_language(DEFER), so reading it
+# at this point yields NOTFOUND. The `COR_FILE_NAME` property is populated
+# eagerly with the bare archive filename — use that instead.
+get_target_property(LORO_RUST_ARCHIVE_NAME loro_cpp_rs-static COR_FILE_NAME)
+if(NOT LORO_RUST_ARCHIVE_NAME)
+    message(FATAL_ERROR
+        "loro_cpp_rs-static is missing the COR_FILE_NAME property — "
+        "Corrosion may have changed its API.")
+endif()
+
+# Mirror what Corrosion attaches as INTERFACE_LINK_LIBRARIES on the staticlib
+# (kernel32, ws2_32, …) plus the bcrypt entry we add ourselves on Windows.
+# These propagate to consumers as plain link-line tokens (system libs).
+set(LORO_RUST_INTERFACE_LINK_LIBS "${Rust_CARGO_TARGET_LINK_NATIVE_LIBS}")
+if(Rust_CARGO_TARGET_OS STREQUAL "windows")
+    list(APPEND LORO_RUST_INTERFACE_LINK_LIBS bcrypt)
+endif()
+
+# Install the C++ wrapper static library + create the loroTargets export.
+install(TARGETS loro
+    EXPORT  loroTargets
+    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+)
+
+# Install headers — generated bindings at <prefix>/include/, hand-written
+# ergonomics at <prefix>/include/loro/. The generated header references
+# `loro_scaffolding.hpp` via a relative include, so they must sit side-by-side.
+install(FILES
+        "${LORO_GENERATED_HEADER}"
+        "${LORO_GENERATED_DIR}/loro_scaffolding.hpp"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+)
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/loro"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+    FILES_MATCHING PATTERN "*.hpp"
+)
+
+# Install the Rust staticlib archive itself. `loro_cpp_rs-static`
+# (created by Corrosion) carries the actual archive path via IMPORTED_LOCATION.
+install(FILES "$<TARGET_FILE:loro_cpp_rs-static>"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+)
+
+# Export loroTargets and write loroConfig + version files.
+install(EXPORT loroTargets
+    FILE        loroTargets.cmake
+    NAMESPACE   loro::
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/loro"
+)
+
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/loroConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/loroConfig.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/loro"
+    PATH_VARS CMAKE_INSTALL_LIBDIR
+)
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/loroConfigVersion.cmake"
+    VERSION       "${PROJECT_VERSION}"
+    COMPATIBILITY SameMajorVersion
+)
+install(FILES
+        "${CMAKE_CURRENT_BINARY_DIR}/loroConfig.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/loroConfigVersion.cmake"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/loro"
+)
+
+# ---------------------------------------------------------------------------
+# 5. Tests + examples
 # ---------------------------------------------------------------------------
 if(BUILD_TESTING)
     add_subdirectory(tests)
+endif()
+
+option(LORO_BUILD_EXAMPLES "Build loro-cpp examples" ${PROJECT_IS_TOP_LEVEL})
+if(LORO_BUILD_EXAMPLES)
+    add_subdirectory(examples)
 endif()

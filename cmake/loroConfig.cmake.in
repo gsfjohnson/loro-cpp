@@ -1,0 +1,38 @@
+@PACKAGE_INIT@
+
+# loroConfig.cmake — configures consumers to link against an installed
+# loro::loro target (C++ wrapper around the loro-ffi UniFFI bindings) plus
+# the underlying Rust staticlib `loro_cpp_rs`.
+#
+# Layout produced by `cmake --install`:
+#   <prefix>/include/loro.hpp                (generated)
+#   <prefix>/include/loro_scaffolding.hpp    (generated, sibling of loro.hpp)
+#   <prefix>/include/loro/loro_ext.hpp       (hand-written ergonomics)
+#   <prefix>/lib/<rust-archive>              (Rust staticlib)
+#   <prefix>/lib/<cpp-archive>               (C++ wrapper)
+#   <prefix>/lib/cmake/loro/loroConfig.cmake (this file)
+#   <prefix>/lib/cmake/loro/loroTargets.cmake
+
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+
+# 1. Recreate the imported Rust staticlib target. Path and link-libs were
+#    captured at *loro-cpp* configure time.
+if(NOT TARGET loro::loro_cpp_rs)
+    add_library(loro::loro_cpp_rs STATIC IMPORTED)
+    set_target_properties(loro::loro_cpp_rs PROPERTIES
+        IMPORTED_LOCATION
+            "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/@LORO_RUST_ARCHIVE_NAME@"
+        INTERFACE_LINK_LIBRARIES
+            "@LORO_RUST_INTERFACE_LINK_LIBS@"
+    )
+endif()
+
+# 2. Pull in the C++ wrapper target (loro::loro).
+include("${CMAKE_CURRENT_LIST_DIR}/loroTargets.cmake")
+
+# 3. Wire the Rust archive into the wrapper's link interface.
+set_property(TARGET loro::loro APPEND PROPERTY
+    INTERFACE_LINK_LIBRARIES loro::loro_cpp_rs)
+
+check_required_components(loro)

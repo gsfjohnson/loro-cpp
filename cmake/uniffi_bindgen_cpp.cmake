@@ -126,12 +126,25 @@ function(uniffi_generate_cpp_bindings)
 
     file(MAKE_DIRECTORY "${_arg_OUT_DIR}")
 
+    # The UDL source lives in the cargo registry next to the loro-ffi
+    # `Cargo.toml`; uniffi-bindgen-cpp walks up from the UDL to find that
+    # crate manifest, so we can't stage it into the build tree. We pass
+    # the original path directly to the generator command (Ninja invokes
+    # `sh -c …` so the path is just an argument string, no path-rewrite).
+    #
+    # The same path can't go into DEPENDS though: when this CMakeLists is
+    # consumed via add_subdirectory()/FetchContent, Ninja treats the
+    # drive-letter prefix as a relative segment and re-roots the path
+    # under the inner build dir (`_deps/loro-build/C:/Users/…`). Sidestep
+    # this by depending only on the generator binary — for a pinned
+    # `loro-ffi` version the registry-side UDL is immutable, so we don't
+    # lose meaningful change-tracking.
     add_custom_command(
         OUTPUT  "${_arg_OUTPUT_HEADER}" "${_arg_OUTPUT_SOURCE}"
         COMMAND "${UNIFFI_BINDGEN_CPP_EXE}"
                 "${_arg_UDL_FILE}"
                 --out-dir "${_arg_OUT_DIR}"
-        DEPENDS "${_arg_UDL_FILE}" "${UNIFFI_BINDGEN_CPP_EXE}"
+        DEPENDS "${UNIFFI_BINDGEN_CPP_EXE}"
         COMMENT "uniffi-bindgen-cpp: generating C++ bindings from ${_arg_UDL_FILE}"
         VERBATIM
     )
