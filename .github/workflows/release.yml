@@ -209,3 +209,22 @@ jobs:
             build/loro-cpp*.deb
             build/loro-cpp*.zip
           if-no-files-found: error
+
+      # actions/upload-artifact above writes to the workflow run's artifact
+      # store (expires in 90 days, only visible on the Actions run page). To
+      # populate the Release page itself, attach the same files to the release
+      # that triggered this workflow.
+      - name: Attach to GitHub Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        working-directory: build
+        run: |
+          shopt -s nullglob
+          files=(loro-cpp*.deb loro-cpp*.zip)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No CPack outputs found" >&2
+            exit 1
+          fi
+          gh release upload "$TAG" "${files[@]}" --clobber
