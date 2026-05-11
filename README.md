@@ -63,19 +63,28 @@ More samples: [examples/basic_text.cpp](examples/basic_text.cpp),
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
-cmake --install build --prefix /opt/loro
+
+cmake --install build                       # install to CMAKE_INSTALL_PREFIX
+cmake --install build --prefix /opt/loro    # ...or a custom prefix
 ```
 
-The install tree contains:
+Default `CMAKE_INSTALL_PREFIX` is `/usr/local` on Linux/macOS and
+`C:/Program Files/loro-cpp` on Windows; set it at configure time
+(`-DCMAKE_INSTALL_PREFIX=…`) or override per-install with `--prefix`.
+
+The install tree uses [GNUInstallDirs](https://cmake.org/cmake/help/latest/module/GNUInstallDirs.html)
+(so `lib/` may be `lib64/` on some Linux distros) and contains:
 
 ```
-<prefix>/include/loro.hpp                  # generated bindings
-<prefix>/include/loro_scaffolding.hpp      # generated FFI scaffolding
-<prefix>/include/loro/loro_ext.hpp         # ergonomics layer
-<prefix>/lib/<rust-archive>                # Rust staticlib
-<prefix>/lib/libloro.a                     # C++ wrapper
+<prefix>/include/loro.hpp                       # generated bindings
+<prefix>/include/loro_scaffolding.hpp           # generated FFI scaffolding
+<prefix>/include/loro/loro_ext.hpp              # ergonomics layer
+<prefix>/lib/<rust-archive>                     # Rust staticlib (libloro_cpp_rs.a / loro_cpp_rs.lib)
+<prefix>/lib/libloro.a                          # C++ wrapper (loro.lib on MSVC)
 <prefix>/lib/cmake/loro/loroConfig.cmake
+<prefix>/lib/cmake/loro/loroConfigVersion.cmake
 <prefix>/lib/cmake/loro/loroTargets.cmake
+<prefix>/share/licenses/loro-cpp/LICENSE
 ```
 
 ## Using it from another project
