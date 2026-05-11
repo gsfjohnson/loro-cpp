@@ -12,22 +12,38 @@ include(GNUInstallDirs)  # define CMAKE_INSTALL_{LIB,INCLUDE,BIN}DIR before any
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # ---------------------------------------------------------------------------
-# MSYS2 cmake defaults — only applied when running under an MSYS2 cmake build
-# (CMAKE_HOST_SYSTEM_NAME=MSYS) and when the user hasn't already set the
-# corresponding variable. Make MSYS2 builds work with a bare
+# MSYS2 cmake defaults — make MSYS2 builds work with a bare
 # `cmake -B build -G Ninja` instead of needing a wall of `-D` flags.
 #
-# Why each default is needed:
-#  * Rust_COMPILER / Rust_CARGO / Rust_RESOLVE_RUSTUP_TOOLCHAINS=OFF —
-#    Corrosion's FindRust resolves rustup's reported toolchain path
-#    (`C:\Users\…\.rustup\toolchains\…`) via `find_program(... HINTS …)`,
-#    which fails on MSYS2 cmake (the backslashes don't survive the HINTS
-#    lookup). Bypass rustup-resolve and point straight at the active
-#    toolchain binaries.
-#  * Rust_CARGO_TARGET — pick the Rust target triple that matches the
-#    MSYS2 environment's runtime/CRT (CLANG64 → gnullvm; UCRT64 / MINGW64
-#    → gnu, both use UCRT in modern rustc).
+# Two distinct concerns, each with a different scope:
+#
+#  1. Rust_CARGO_TARGET (gated on $MSYSTEM): pick the Rust target triple that
+#     matches the MSYS2 environment's runtime/CRT (CLANG64/CLANGARM64 → gnullvm;
+#     UCRT64 / MINGW64 → gnu, both UCRT in modern rustc). This applies whether
+#     the active cmake is msys/cmake (CMAKE_HOST_SYSTEM_NAME=MSYS) or the
+#     environment-prefixed mingw-w64-<env>-cmake (CMAKE_HOST_SYSTEM_NAME=
+#     Windows) — both produce binaries linked against the MSYSTEM toolchain
+#     and must match the Rust ABI accordingly. Without this, rustup falls back
+#     to its default (typically …-msvc) and the staticlib won't link.
+#
+#  2. Rust_COMPILER / Rust_CARGO / Rust_RESOLVE_RUSTUP_TOOLCHAINS=OFF (gated on
+#     CMAKE_HOST_SYSTEM_NAME=MSYS only): Corrosion's FindRust resolves rustup's
+#     reported toolchain path (`C:\Users\…\.rustup\toolchains\…`) via
+#     `find_program(... HINTS …)`, which fails on MSYS2-base cmake because the
+#     backslashes don't survive the HINTS lookup. The Windows-native cmake
+#     (mingw-w64-<env>-cmake) doesn't hit the bug, so leave its rustup
+#     resolution alone.
 # ---------------------------------------------------------------------------
+if(DEFINED ENV{MSYSTEM} AND NOT DEFINED Rust_CARGO_TARGET)
+    if("$ENV{MSYSTEM}" STREQUAL "CLANG64")
+        set(Rust_CARGO_TARGET "x86_64-pc-windows-gnullvm" CACHE STRING "")
+    elseif("$ENV{MSYSTEM}" STREQUAL "CLANGARM64")
+        set(Rust_CARGO_TARGET "aarch64-pc-windows-gnullvm" CACHE STRING "")
+    elseif("$ENV{MSYSTEM}" STREQUAL "UCRT64" OR "$ENV{MSYSTEM}" STREQUAL "MINGW64")
+        set(Rust_CARGO_TARGET "x86_64-pc-windows-gnu" CACHE STRING "")
+    endif()
+endif()
+
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "MSYS")
     if(NOT DEFINED Rust_COMPILER OR NOT DEFINED Rust_CARGO)
         execute_process(
@@ -56,15 +72,6 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "MSYS")
         unset(_loro_cargo)
         unset(_loro_rustc_rc)
         unset(_loro_cargo_rc)
-    endif()
-    if(NOT DEFINED Rust_CARGO_TARGET AND DEFINED ENV{MSYSTEM})
-        if("$ENV{MSYSTEM}" STREQUAL "CLANG64")
-            set(Rust_CARGO_TARGET "x86_64-pc-windows-gnullvm" CACHE STRING "")
-        elseif("$ENV{MSYSTEM}" STREQUAL "CLANGARM64")
-            set(Rust_CARGO_TARGET "aarch64-pc-windows-gnullvm" CACHE STRING "")
-        elseif("$ENV{MSYSTEM}" STREQUAL "UCRT64" OR "$ENV{MSYSTEM}" STREQUAL "MINGW64")
-            set(Rust_CARGO_TARGET "x86_64-pc-windows-gnu" CACHE STRING "")
-        endif()
     endif()
 endif()
 
@@ -218,6 +225,13 @@ install(FILES
         "${CMAKE_CURRENT_BINARY_DIR}/loroConfig.cmake"
         "${CMAKE_CURRENT_BINARY_DIR}/loroConfigVersion.cmake"
     DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/loro"
+)
+
+# Install the license alongside the package so distro packagers (MSYS2 pacman,
+# Debian, Homebrew) and end users can satisfy attribution requirements without
+# pulling files from the source tarball.
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/licenses/loro-cpp"
 )
 
 # ---------------------------------------------------------------------------

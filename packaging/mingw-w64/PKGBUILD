@@ -1,0 +1,70 @@
+# Maintainer: Glen Johnson <gsfjohnson@gmail.com>
+#
+# Build:
+#   cd packaging/mingw-w64
+#   updpkgsums                       # populates sha256sums on first run
+#   makepkg-mingw -sCLf              # builds for each MSYSTEM in mingw_arch
+# Install (CLANG64 shell):
+#   pacman -U mingw-w64-clang-x86_64-loro-cpp-${pkgver}-${pkgrel}-any.pkg.tar.zst
+#
+# After install, downstream CLANG64 projects pick the package up with a bare
+# `find_package(loro CONFIG REQUIRED)` — files land under ${MINGW_PREFIX}.
+
+_realname=loro-cpp
+pkgbase=mingw-w64-${_realname}
+pkgname="${MINGW_PACKAGE_PREFIX}-${_realname}"
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='C++20 bindings for the Loro CRDT library (mingw-w64)'
+arch=('any')
+# gnullvm-only environments. UCRT64/MINGW64 (gnu-target Rust) build but are
+# not exercised in upstream CI — extend after explicit validation.
+mingw_arch=('clang64' 'clangarm64')
+url='https://github.com/gsfjohnson/loro-cpp'
+license=('spdx:MIT')
+makedepends=(
+  "${MINGW_PACKAGE_PREFIX}-cc"
+  "${MINGW_PACKAGE_PREFIX}-cmake"
+  "${MINGW_PACKAGE_PREFIX}-ninja"
+  "${MINGW_PACKAGE_PREFIX}-rust"
+  "${MINGW_PACKAGE_PREFIX}-pkgconf"
+)
+options=('staticlibs')
+source=("${_realname}-${pkgver}.tar.gz::${url}/archive/v${pkgver}.tar.gz")
+# Replace with the real digest via `updpkgsums` before publishing.
+sha256sums=('SKIP')
+
+build() {
+  # Belt-and-suspenders: the in-tree CMakeLists pins Rust_CARGO_TARGET from
+  # $MSYSTEM, but state it here too so the recipe stays self-documenting and
+  # survives a future CMakeLists refactor.
+  local rust_target=''
+  case "${MSYSTEM}" in
+    CLANG64)    rust_target='x86_64-pc-windows-gnullvm' ;;
+    CLANGARM64) rust_target='aarch64-pc-windows-gnullvm' ;;
+  esac
+
+  MSYS2_ARG_CONV_EXCL='-DCMAKE_INSTALL_PREFIX=' \
+  "${MINGW_PREFIX}/bin/cmake" \
+    -B "build-${MSYSTEM}" \
+    -S "${srcdir}/${_realname}-${pkgver}" \
+    -G Ninja \
+    -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=ON \
+    -DLORO_BUILD_EXAMPLES=OFF \
+    ${rust_target:+-DRust_CARGO_TARGET="${rust_target}"}
+
+  "${MINGW_PREFIX}/bin/cmake" --build "build-${MSYSTEM}"
+}
+
+check() {
+  "${MINGW_PREFIX}/bin/ctest" \
+    --test-dir "build-${MSYSTEM}" \
+    --output-on-failure \
+    --parallel 2
+}
+
+package() {
+  DESTDIR="${pkgdir}" "${MINGW_PREFIX}/bin/cmake" --install "build-${MSYSTEM}"
+}
