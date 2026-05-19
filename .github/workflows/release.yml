@@ -10,6 +10,13 @@ on:
 #  pull_request:
 #    branches: [main]
 
+# The "Attach to GitHub Release" step calls `gh release upload`, which writes to
+# the release's asset list. That endpoint requires contents:write on the job
+# token — the repo default (read) returns HTTP 403 "Resource not accessible by
+# integration". Scoped to this workflow only; no other step needs write.
+permissions:
+  contents: write
+
 # Release builds across the three supported toolchains. Each job:
 #   1. Configures + builds + runs tests with BUILD_TESTING=ON.
 #   2. Installs to a job-local prefix.
