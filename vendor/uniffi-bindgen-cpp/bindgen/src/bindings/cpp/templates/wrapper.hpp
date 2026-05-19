@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <streambuf>
 #include <type_traits>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 

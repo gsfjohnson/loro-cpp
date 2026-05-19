@@ -26,13 +26,22 @@ else()
     set(UNIFFI_BINDGEN_CPP_EXE "${UNIFFI_BINDGEN_CPP_ROOT}/bin/uniffi-bindgen-cpp")
 endif()
 
-# Stamp file invalidates whenever the vendored sources change.
+# Stamp file invalidates whenever the vendored sources change. Templates
+# are askama-embedded into the binary at build time, so their *contents*
+# determine the generated output — hash the contents (not just the path
+# list) so a template-only edit retriggers `cargo install`.
 file(GLOB_RECURSE _uniffi_src_files
      CONFIGURE_DEPENDS
      "${UNIFFI_BINDGEN_CPP_SOURCE_DIR}/bindgen/*.rs"
+     "${UNIFFI_BINDGEN_CPP_SOURCE_DIR}/bindgen/src/bindings/cpp/templates/*"
      "${UNIFFI_BINDGEN_CPP_SOURCE_DIR}/bindgen/Cargo.toml"
      "${UNIFFI_BINDGEN_CPP_SOURCE_DIR}/Cargo.lock")
-string(SHA1 _uniffi_src_hash "${_uniffi_src_files}")
+set(_uniffi_src_blob "")
+foreach(_f IN LISTS _uniffi_src_files)
+    file(SHA1 "${_f}" _f_hash)
+    string(APPEND _uniffi_src_blob "${_f}:${_f_hash}\n")
+endforeach()
+string(SHA1 _uniffi_src_hash "${_uniffi_src_blob}")
 set(_uniffi_stamp "${UNIFFI_BINDGEN_CPP_ROOT}/.installed-${_uniffi_src_hash}")
 
 if(NOT EXISTS "${UNIFFI_BINDGEN_CPP_EXE}" OR NOT EXISTS "${_uniffi_stamp}")
